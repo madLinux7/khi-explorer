@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [linux, windows, darwin]
+        goarch: [amd64, arm64]
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          check-latest: true
+
+      - name: Build Binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          mkdir -p dist
+          BINARY_NAME="khi-explorer-${{ matrix.goos }}-${{ matrix.goarch }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            BINARY_NAME="${BINARY_NAME}.exe"
+          fi
+          echo "Building $BINARY_NAME..."
+          go build -ldflags="-s -w -X main.Version=${{ github.ref_name }}" -o "dist/$BINARY_NAME" main.go
+
+      - name: Install UPX (Linux only)
+        if: matrix.goos == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y upx-ucl
+
+      - name: Compress Linux Binary with UPX
+        if: matrix.goos == 'linux'
+        run: upx --best --lzma "dist/khi-explorer-${{ matrix.goos }}-${{ matrix.goarch }}"
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: dist/*
+          generate_release_notes: true
